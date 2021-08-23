@@ -8,6 +8,14 @@ jobs:
     docker:
       # Specify the version you desire here
       - image: circleci/php:7.1-node-browsers
+      - image: circleci/mysql:5.7
+    environment:
+      MYSQL_DATABASE: pogi_test
+      MYSQL_USER: root
+      MYSQL_ALLOW_EMPTY_PASSWORD: 1
+    command:
+        mysqld --sql-mode=NO_ENGINE_SUBSTITUTION --character-set-server=utf8mb4 --collation-server=utf8mb4_bin --innodb-large-prefix=true
+
 
       # Specify service dependencies here if necessary
       # CircleCI maintains a library of pre-built images
@@ -17,42 +25,50 @@ jobs:
       # - image: circleci/mysql:5.7-ram
       #
       # - image: redis:2.8.19
+    working_directory: ~/pogi
 
     steps:
       - checkout
 
-      - run: sudo apt update # PHP CircleCI 2.0 Configuration File# PHP CircleCI 2.0 Configuration File sudo apt install zlib1g-dev libsqlite3-dev
+      - run: sudo apt-get update
+      - run: sudo apt-get install -y libpng-dev libmcrypt-dev libreadline-dev mysql-client zip zlib1g-dev
       - run: sudo docker-php-ext-install zip
+      - run: sudo docker-php-ext-install gd
+      - run: sudo apt-get install
+      - run: sudo docker-php-ext-install pdo_mysql && sudo docker-php-ext-enable pdo_mysql
+      - run: sudo docker-php-ext-configure intl
+      - run: sudo docker-php-ext-install intl
 
-      # Download and cache dependencies
       - restore_cache:
           keys:
-            # "composer.lock" can be used if it is committed to the repo
-            - v1-dependencies-{{ checksum "composer.json" }}
-            # fallback to using the latest cache if no exact match is found
-            - v1-dependencies-
-
-      - run: composer install -n --prefer-dist
-
+          - v1-dependencies-{{ checksum "composer.json" }}
+          # fallback to using the latest cache if no exact match is found
+          - v1-dependencies-
+      - run:
+          name: Install Dependencies
+          command: composer install -n --prefer-dist
       - save_cache:
-          key: v1-dependencies-{{ checksum "composer.json" }}
           paths:
             - ./vendor
-      - restore_cache:
-          keys:
-            - node-v1-{{ checksum "package.json" }}
-            - node-v1-
-      - run: yarn install
-      - save_cache:
-          key: node-v1-{{ checksum "package.json" }}
-          paths:
-            - node_modules
+          key: v1-dependencies-{{ checksum "composer.json" }}
+      - run:
+          name: Configure secondary database for Analytics
+          command: mysql -h 127.0.0.1 -u root -e "CREATE DATABASE pogi_analytics_test"
+      - run:
+          name: Initialize Dev Environment
+          command: ./init --env=Circle-CI --overwrite=All
+      - run:
+          name: Install DB Migrations
+          command: ./yii_test migrate --interactive=0
+      - run:
+          name: Run Codeception tests and store result output
+          command: cd ./admin && ../vendor/bin/codecept run --debug --xml --html --fail-fast
+      #- store_test_results:
+  #    path: /tmp
 
-      # prepare the database
-      - run: touch storage/testing.sqlite
-      - run: php artisan migrate --env=testing --database=sqlite_testing --force
+  #- store_artifacts:
+  #    path: /tmp/report.html
+  #    destination: report 
 
-      # run tests with phpunit or codecept
-      #- run: ./vendor/bin/phpunit
-      - run: ./vendor/bin/codecept build
-      - run: ./vendor/bin/codecept run
+
+      
